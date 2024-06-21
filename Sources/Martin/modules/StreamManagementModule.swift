@@ -53,7 +53,7 @@ open class StreamManagementModule: XmppModuleBase, XmppModule, XmppStanzaFilter,
     public let features = [String]();
         
     /// Holds queue with stanzas sent but not acked
-    fileprivate var outgoingQueue = Queue<Stanza>();
+     public var outgoingQueue = Queue<Stanza>();
     
     // TODO: should this stay here or be moved to sessionObject as in Jaxmpp?
     private let queue = DispatchQueue(label: "StreamManagementQueue");
@@ -223,9 +223,10 @@ open class StreamManagementModule: XmppModuleBase, XmppModule, XmppStanzaFilter,
             ackH.incrementOutgoing();
         }
         outgoingQueue.offer(stanza);
-        if (outgoingQueue.count > 3) {
-            request();
-        }
+        // Removed because we need to requestACK for each message
+        // if (outgoingQueue.count > 3) {
+        //     // request();
+        // }
     }
     
     open func isStanza(_ stanza: Stanza) -> Bool {
@@ -239,9 +240,9 @@ open class StreamManagementModule: XmppModuleBase, XmppModule, XmppStanzaFilter,
 
     /// Send ACK request to server
     open func request() {
-        guard lastRequestTimestamp.timeIntervalSinceNow < 1 else {
-            return;
-        }
+        // guard lastRequestTimestamp.timeIntervalSinceNow < 1 else {
+        //     return;
+        // }
         
         let r = Stanza(name: "r", xmlns: StreamManagementModule.SM_XMLNS);
         write(r);
@@ -308,14 +309,18 @@ open class StreamManagementModule: XmppModuleBase, XmppModule, XmppStanzaFilter,
         guard let attr = stanza.getAttribute("h") else {
             return;
         }
+       var ackReceivedQueue = Queue<Stanza>();
         let newH = UInt32(attr) ?? 0;
         queue.sync {
             _ackEnabled = true;
             let left = max(Int(ackH.outgoingCounter) - Int(newH), 0);
             ackH.outgoingCounter = newH;
             while left < outgoingQueue.count {
-                _ = outgoingQueue.poll();
+                ackReceivedQueue.offer(outgoingQueue.poll()!);
             }
+        }
+         if let context = context {
+            fire(AckReceiveddEvent(context: context, outgoingQueue: ackReceivedQueue));
         }
     }
     
@@ -346,12 +351,16 @@ open class StreamManagementModule: XmppModuleBase, XmppModule, XmppStanzaFilter,
     func processResumed(_ stanza: Stanza) {
         let newH = UInt32(stanza.getAttribute("h")!) ?? 0;
         _ackEnabled = true;
+         var ackReceivedQueue = Queue<Stanza>();
         queue.sync {
             let left = max(Int(ackH.outgoingCounter) - Int(newH), 0);
             while left < outgoingQueue.count {
-                _ = outgoingQueue.poll();
+             ackReceivedQueue.offer(outgoingQueue.poll()!);
             }
             ackH.outgoingCounter = newH;
+        }
+          if let context = context {
+            fire(AckReceiveddEvent(context: context, outgoingQueue: ackReceivedQueue));
         }
         let oldOutgoingQueue = outgoingQueue;
         outgoingQueue = Queue<Stanza>();
@@ -483,27 +492,44 @@ open class StreamManagementModule: XmppModuleBase, XmppModule, XmppStanzaFilter,
 
     }
 
+        open class AckReceiveddEvent: AbstractEvent {
+        /// Identifier of event which should be used during registration of `EventHandler`
+        public static let TYPE = AckReceiveddEvent();
+        public let outgoingQueue:Queue<Stanza>;
+
+        init() {
+            outgoingQueue = Queue<Stanza>();
+            super.init(type: "StreamManagementAckReceivedEvent")
+        }
+
+        init(context: Context, outgoingQueue: Queue<Stanza>) {
+            self.outgoingQueue = outgoingQueue;
+            super.init(type: "StreamManagementAckReceivedEvent", context: context);
+        }
+
+    }
+
 }
 
 
 /// Internal implementation of queue for holding items
 public class Queue<T> {
 
-    private class Node<T> {
+    public class Node<T> {
         
-        let value: T;
+       public let value: T;
         weak var prev: Node<T>? = nil;
-        var next: Node<T>? = nil;
+       public var next: Node<T>? = nil;
         
-        init(value: T) {
+       public init(value: T) {
             self.value = value;
         }
         
     }
     
-    private var _count: Int = 0;
-    private var head: Node<T>? = nil;
-    private var tail: Node<T>? = nil;
+    public var _count: Int = 0;
+    public var head: Node<T>? = nil;
+    public var tail: Node<T>? = nil;
     
     public var isEmpty: Bool {
         return head == nil;
@@ -571,3 +597,4 @@ extension StreamManagementModule {
         }
     }
 }
+
