@@ -141,6 +141,9 @@ open class SocketSessionLogic: XmppSessionLogic {
                         return;
                     }
                 }
+                if that.state == .connecting && (newState == .disconnected(.noRouteToServer) || newState == .disconnected(.timeout)) {
+                    that.modulesManager.moduleOrNil(.streamManagement)?.reset(scopes: [.stream,.session]);
+                }
                 that.state = .disconnected(reason.clientDisconnectionReason);
             }
         }).store(in: &socketSubscriptions);
@@ -349,9 +352,12 @@ open class SocketSessionLogic: XmppSessionLogic {
     
     open func keepalive() {
         if let pingModule = modulesManager.moduleOrNil(.ping) {
-            pingModule.ping(JID(userJid), callback: { (stanza) in
-                if stanza == nil {
+            pingModule.ping(JID(userJid), completionHandler: { result in
+                switch result {
+                case .failure(_):
                     self.logger.debug("\(self.userJid) - no response on ping packet - possible that connection is broken, reconnecting...");
+                case .success(_):
+                    break;
                 }
             });
         }
